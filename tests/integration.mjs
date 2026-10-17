@@ -20,6 +20,14 @@ try{
  const seed=process.env.SIGNAL_TEST_SEED?JSON.parse(await readFile(process.env.SIGNAL_TEST_SEED,'utf8')):fixture;
  await json(await req('bootstrap','POST',seed,false));
  assert.equal((await req('bootstrap','POST',seed,false)).status,400);
+ assert.equal((await req('ingest/reset','POST',{},false)).status,405);
+ assert.equal((await req('ingest/posts/fixture','DELETE',null,false)).status,405);
+ assert.equal((await req('ingest/posts','PUT',{},false,{Origin:'https://evil.test'})).status,403);
+ const servicePosts=await json(await req('ingest/posts','GET',null,false));
+ const servicePost=servicePosts[0];
+ servicePost.note='service access verified';
+ await json(await req('ingest/posts','PUT',servicePost,false));
+ assert.equal((await json(await req('ingest/posts','GET',null,false)))[0].note,'service access verified');
  let posts=await json(await req('posts'));assert.equal(posts.length,seed.posts.length);
  for(const p of posts){const source=seed.posts.find(x=>x.id===p.id);assert.deepEqual(p.snapshots,source.snapshots.map(s=>({...s,note:s.note||''})));for(let n=0;n<p.images.length;n++){const bytes=Buffer.from(source.images[n].inlineData.split(',')[1],'base64');const actual=await req('media/'+p.images[n].mediaKey);assert.equal(actual.status,200);assert.deepEqual(Buffer.from(await actual.arrayBuffer()),bytes);assert.equal((await req('media/'+p.images[n].mediaKey,'GET',null,false)).status,401);}}
  const first=posts[0],stale=structuredClone(first);first.title+=' changed';await json(await req('posts','PUT',first));assert.equal((await req('posts','PUT',stale)).status,409);
