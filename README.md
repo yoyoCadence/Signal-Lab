@@ -16,6 +16,8 @@
 
 Sites dispatch 在伺服器前限制擁有者存取，並提供可信任的 ChatGPT 身分。一般 API 另要求身分、寫入檢查同源、圖片只透過受保護 API 提供並禁止快取。初始匯入與驗證端點 `/api/lab/bootstrap` 依賴同一個 owner-private 平台邊界，支援 Sites 官方 service-access 路徑；POST 僅能初始化一次。原始 seed 資料與使用者截圖**不在此公開 repo**，必須從私人來源直接匯入已保護的部署。
 
+代理補充快照使用 `/api/lab/ingest/posts`（GET/PUT）及 `/api/lab/ingest/media`（POST，上傳；GET /:id，驗證原圖）。同樣依賴已確認的 owner-private Sites dispatch 與官方 service-access；不要偽造訪客身分標頭。此路徑不允許刪除、重設或整庫還原。更新前讀取最新 revision，保留既有快照與圖片，更新後重新讀取並核對數值及原圖 SHA-256。憑證只透過記憶體與 stdin 傳遞。
+
 `app_state.initial_backup` 保存初始數據與 R2 檔案參照，讓重設能恢復初始版本。刪除貼文及還原不會立即清除 R2 原檔，確保初始備份可復原；目前不提供永久清除孤立圖片功能。備份檔包含私人數據，請自行妥善保存。
 
 貼文使用 revision 條件更新；同時在兩裝置編輯會拒絕較舊版本，避免靜默覆蓋。跨裝置同步於載入、切回頁籤與成功儲存後重新讀取伺服器資料。沒有 Threads API 連線。
