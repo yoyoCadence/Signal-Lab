@@ -1,4 +1,4 @@
-import { listPosts,savePost,deletePost,upload,readImage,restore,reset,readStrategy,saveStrategy } from '@/lib/storage';
+import { listPosts,savePost,deletePost,upload,readImage,restore,reset,readStrategy,saveStrategy,readResearch,saveResearch } from '@/lib/storage';
 export const dynamic='force-dynamic';
 const json=(v:unknown,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
 async function handler(req:Request){const url=new URL(req.url);const path=url.pathname.replace(/^\/api\/lab\/?/,'').split('/').filter(Boolean);try{
@@ -8,12 +8,14 @@ async function handler(req:Request){const url=new URL(req.url);const path=url.pa
 // Ingest reuses validation, image checks and optimistic revision checks; it does
 // not grant service callers reset, delete, restore or bootstrap operations.
 const ingest=path[0]==='ingest';
-if(ingest){path.shift();const allowed=(req.method==='GET'&&['posts','media','strategy'].includes(path[0]))||(req.method==='PUT'&&['posts','strategy'].includes(path[0]))||(req.method==='POST'&&path[0]==='media');if(!allowed)return json({error:'不支援此同步操作'},405);}
+if(ingest){path.shift();const allowed=(req.method==='GET'&&['posts','media','strategy','research'].includes(path[0]))||(req.method==='PUT'&&['posts','strategy','research'].includes(path[0]))||(req.method==='POST'&&path[0]==='media');if(!allowed)return json({error:'不支援此同步操作'},405);}
 const isDev=import.meta.env.DEV&&['terminal.local','localhost','127.0.0.1'].includes(url.hostname);
 if(!isDev&&!req.headers.get('oai-authenticated-user-id')&&path[0]!=='bootstrap'&&!ingest)return json({error:'請先使用擁有者的 ChatGPT 帳號登入'},401);
 if(req.method!=='GET'){const origin=req.headers.get('origin');if(origin&&origin!==url.origin)return json({error:'來源驗證失敗'},403);}
 if(req.method==='GET'&&path[0]==='bootstrap'){const posts=await listPosts();const checks=[];for(const p of posts){const images=[];for(const i of p.images){const r=await readImage(i.mediaKey);const bytes=await r.arrayBuffer();const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(x=>x.toString(16).padStart(2,'0')).join('');images.push({id:i.id,sha256:hash,size:bytes.byteLength});}checks.push({id:p.id,snapshots:p.snapshots,images});}return json({posts:checks});}
 if(req.method==='GET'&&path[0]==='posts')return json(await listPosts());
+if(req.method==='GET'&&path[0]==='research')return json(await readResearch());
+if(req.method==='PUT'&&path[0]==='research')return json(await saveResearch(await req.json()));
 if(req.method==='GET'&&path[0]==='strategy')return json(await readStrategy());
 if(req.method==='PUT'&&path[0]==='strategy')return json(await saveStrategy(await req.json()));
 if(req.method==='GET'&&path[0]==='media'&&path[1])return readImage(path[1]);

@@ -1,3 +1,3 @@
-import shell from './shell';
+import LabClient from './lab-client';
 export const dynamic = 'force-dynamic';
-export default function Home(){return <><div dangerouslySetInnerHTML={{__html:shell}}/><script src="/strategy.js" defer /><script src="/app.js" defer /></>}
+export default function Home(){return <LabClient/>;}
