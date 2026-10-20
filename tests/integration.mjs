@@ -14,6 +14,20 @@ const json=async r=>{const data=await r.json();assert.equal(r.status,200,JSON.st
 try{
  const db=await mf.getD1Database('DB');let sql=await readFile('drizzle/0000_dizzy_mach_iv.sql','utf8');for(const s of sql.split('--> statement-breakpoint'))await db.prepare(s.trim()).run();
  assert.equal((await req('posts','GET',null,false)).status,401);
+ assert.equal((await req('strategy','GET',null,false)).status,401);
+ assert.equal((await req('strategy','PUT',{},false)).status,401);
+ assert.equal((await req('ingest/strategy','PUT',{},false,{Origin:'https://evil.test'})).status,403);
+ const strategy={title:'追蹤測試',objective:'檢查持久化',principles:'保留證據',sourceNote:'測試資料',items:[{id:'experiment-test',title:'實用回覆實驗',kind:'experiment',status:'planned',basis:'hypothesis',hypothesis:'測試',action:'記錄實際快照',metric:'每萬觀看檔案瀏覽',window:'24h',reviewAt:'2026-10-21',postIds:['fixture'],result:'',source:'測試'}]};
+ const emptyStrategy=await json(await req('strategy'));assert.equal(emptyStrategy.items.length,0);
+ await json(await req('ingest/strategy','PUT',strategy,false));
+ const strategyFirst=await json(await req('strategy'));const strategyStale=structuredClone(strategyFirst);
+ strategyFirst.items[0].status='running';strategyFirst.items[0].result='已開始追蹤';
+ await json(await req('strategy','PUT',strategyFirst));
+ assert.equal((await req('strategy','PUT',strategyStale)).status,409);
+ assert.equal((await req('ingest/strategy','PUT',strategy,false)).status,409);
+ assert.equal((await req('ingest/strategy','DELETE',null,false)).status,405);
+ const duplicated={...await json(await req('strategy')),items:[strategy.items[0],strategy.items[0]]};
+ assert.equal((await req('strategy','PUT',duplicated)).status,400);
  assert.equal((await req('posts','PUT',{},true,{Origin:'https://evil.test'})).status,403);
  const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=';
  const fixture={format:'threads-signal-lab',version:1,posts:[{id:'fixture',title:'測試',date:'2026-10-17',images:[{id:'img',name:'test.png',inlineData:'data:image/png;base64,'+png}],snapshots:[{id:'snap',at:'2026-10-17T13:28',ageHours:4,views:4492,reach:3410,profile:39,likes:15,replies:1,follows:0,share:0,quote:0,repost:0,sources:{home:86.5,search:11.6,instagram:0.1,profile:0,other:1.8}}]}]};
@@ -33,10 +47,19 @@ try{
  const first=posts[0],stale=structuredClone(first);first.title+=' changed';await json(await req('posts','PUT',first));assert.equal((await req('posts','PUT',stale)).status,409);
  const current=(await json(await req('posts')))[0];current.snapshots.push({...current.snapshots[0],id:'second-snapshot',at:'2026-10-17T15:00',views:7000});await json(await req('posts','PUT',current));
  await mf.dispose();mf=new Miniflare(config);posts=await json(await req('posts'));assert.equal(posts[0].snapshots.length,2);assert.equal(posts[0].snapshots[1].views,7000);
+ const persistedStrategy=await json(await req('strategy'));assert.equal(persistedStrategy.items[0].status,'running');assert.equal(persistedStrategy.items[0].result,'已開始追蹤');
  for(const p of posts){if(p.coverMediaKey){const r=await req('media/'+p.coverMediaKey);p.coverInlineData='data:'+r.headers.get('content-type')+';base64,'+Buffer.from(await r.arrayBuffer()).toString('base64');}for(const i of p.images){const r=await req('media/'+i.mediaKey);assert.equal(r.status,200);i.inlineData='data:'+r.headers.get('content-type')+';base64,'+Buffer.from(await r.arrayBuffer()).toString('base64');}}
  const before=posts.map(p=>p.images.map(i=>createHash('sha256').update(Buffer.from(i.inlineData.split(',')[1],'base64')).digest('hex')));
  assert.equal((await req('restore','POST',{...seed,posts:[{...seed.posts[0],images:[{id:'missing',name:'missing'}]}]})).status,400);assert.equal((await json(await req('posts')))[0].snapshots.length,2);
  await json(await req('restore','POST',{format:'threads-signal-lab',version:1,posts}));posts=await json(await req('posts'));const after=[];for(const p of posts){const hashes=[];for(const i of p.images){const r=await req('media/'+i.mediaKey);hashes.push(createHash('sha256').update(Buffer.from(await r.arrayBuffer())).digest('hex'));}after.push(hashes)}assert.deepEqual(after,before);
+ assert.deepEqual(await json(await req('strategy')),persistedStrategy,'Legacy backup must not erase strategy');
+ const invalidStrategyBackup={format:'threads-signal-lab',version:3,posts,strategy:{...persistedStrategy,items:[{id:'bad',title:''}]}};
+ assert.equal((await req('restore','POST',invalidStrategyBackup)).status,400);assert.deepEqual(await json(await req('strategy')),persistedStrategy);
+ for(const p of posts){for(const i of p.images){const r=await req('media/'+i.mediaKey);i.inlineData='data:'+r.headers.get('content-type')+';base64,'+Buffer.from(await r.arrayBuffer()).toString('base64');}}
+ const savedStrategy={...persistedStrategy,items:persistedStrategy.items.map(i=>({...i,status:'reviewed',result:'備份中的復盤結果'}))};
+ await json(await req('restore','POST',{format:'threads-signal-lab',version:3,posts,strategy:savedStrategy}));
+ const restoredStrategy=await json(await req('strategy'));assert.equal(restoredStrategy.items[0].status,'reviewed');assert.notEqual(restoredStrategy.revision,savedStrategy.revision);
  await json(await req('reset','POST',{}));posts=await json(await req('posts'));assert.equal(posts.length,seed.posts.length);assert.equal(posts[0].title,seed.posts[0].title);
+ assert.deepEqual(await json(await req('strategy')),restoredStrategy,'Reset posts must preserve strategy');
  console.log(JSON.stringify({passed:true,posts:posts.length,snapshots:posts.reduce((n,p)=>n+p.snapshots.length,0),originalImages:posts.reduce((n,p)=>n+p.images.length,0),checks:['anonymous denial','cross-origin denial','one-time bootstrap','original image byte equality','optimistic conflict','multiple snapshots','restart persistence','failed restore atomicity','image backup round-trip','reset preserves original seed']}));
 } finally {await mf.dispose();await rm(dir,{recursive:true,force:true});}
